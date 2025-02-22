@@ -28,6 +28,8 @@
 #include <WinSock2.h>
 #include <ws2tcpip.h>
 
+#pragma comment(lib, "Ws2_32.lib")
+
 using namespace std::string_literals;
 namespace fs = std::filesystem;
 
