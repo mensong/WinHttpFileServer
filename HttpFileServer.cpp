@@ -1,5 +1,5 @@
 /*
-* Http file server written in C++20, only supports windows platform.
+* Http file m_server written in C++20, only supports windows platform.
 */
 #define WIN32_LEAN_AND_MEAN
 
@@ -199,35 +199,36 @@ static std::string conv_unicode_to_utf8(const std::wstring& wstr) {
 }
 
 /*
-    Thread pool.
-    This thread pool ignores the return value, so you have to push some functions like: void my_func(void);
-    Drawing inspiration from Jakob Progsch and yhirose's thread pool implementation.
+    Thread m_pool.
+    This thread m_pool ignores the return value, so you have to push some functions like: void my_func(void);
+    Drawing inspiration from Jakob Progsch and yhirose's thread m_pool implementation.
 */
-class ThreadPool {
-    bool running;
-    std::queue<std::function<void()>> taskQueue;
-    std::vector<std::thread> workers;
-    std::mutex mut;
-    std::condition_variable cv;
+class ThreadPool 
+{
+    bool m_running;
+    std::queue<std::function<void()>> m_taskQueue;
+    std::vector<std::thread> m_workers;
+    std::mutex m_mut;
+    std::condition_variable m_cv;
 public:
     explicit ThreadPool(size_t numOfWorkers)
-        : running{ true }
+        : m_running{ true }
     {
         for (size_t i = 0; i < numOfWorkers; ++i) {
-            workers.emplace_back([this]() {
+            m_workers.emplace_back([this]() {
                 while (true) {
                     std::function<void()> task;
 
                     {
-                        std::unique_lock<std::mutex> lock{ mut };
-                        cv.wait(lock, [this]() { return !running || !taskQueue.empty(); });
+                        std::unique_lock<std::mutex> lock{ m_mut };
+                        m_cv.wait(lock, [this]() { return !m_running || !m_taskQueue.empty(); });
 
-                        if (!running && taskQueue.empty()) {
+                        if (!m_running && m_taskQueue.empty()) {
                             return;
                         }
 
-                        task = std::move(taskQueue.front());
-                        taskQueue.pop();
+                        task = std::move(m_taskQueue.front());
+                        m_taskQueue.pop();
                     }
 
                     task();
@@ -240,24 +241,24 @@ public:
 
     ~ThreadPool() noexcept {
         {
-            /* first set running to false. */
-            std::unique_lock<std::mutex> lock{ mut };
-            running = false;
+            /* first set m_running to false. */
+            std::unique_lock<std::mutex> lock{ m_mut };
+            m_running = false;
         }
 
-        cv.notify_all();
-        for (std::thread& worker : workers) {
+        m_cv.notify_all();
+        for (std::thread& worker : m_workers) {
             worker.join();
         }
     }
 
     void add_task(std::function<void()> task) {
         {
-            std::unique_lock<std::mutex> lock{ mut };
-            taskQueue.emplace(std::move(task));
+            std::unique_lock<std::mutex> lock{ m_mut };
+            m_taskQueue.emplace(std::move(task));
         }
 
-        cv.notify_one();
+        m_cv.notify_one();
     }
 };
 
@@ -266,9 +267,11 @@ public:
     you have to use WSAStartup() and finally use WSACleanup(),
     so this RAII class is needed.
 */
-class WSASetup {
+class WSASetup
+{
 public:
-    WSASetup() {
+    WSASetup() 
+    {
         WSADATA wsaData;
 
         WORD wVersionRequested = MAKEWORD(2, 2);
@@ -285,14 +288,15 @@ public:
 static WSASetup wsaSetup;
 
 /*
-* http connection, it will handle the http request and response.
+* http connection, it will handle the http m_request and response.
 */
-class HttpConnection {
-    SOCKET sock;
-    std::wstring rootPath;
-    std::string request;
-    std::string method;
-    std::string uri;
+class HttpConnection 
+{
+    SOCKET m_sock;
+    fs::path m_fsRootPath;
+    std::string m_request;
+    std::string m_method;
+    std::string m_uri;
 
     bool string_icompare(const std::string& left, const std::string& right){
         return std::ranges::equal(left, right, [](char c1, char c2){
@@ -314,27 +318,27 @@ class HttpConnection {
         return -1;
     }
 
-    void uri_decode() {   // uri may contain percent-encoding(like %20), in RFC 3986
+    void uri_decode() {   // m_uri may contain percent-encoding(like %20), in RFC 3986
         std::string decodeUri;
-        auto len = uri.size();
+        auto len = m_uri.size();
 
         size_t i = 0;
         while (i < len){
-            if (uri[i] == '%' && i + 2 < len){
-                decodeUri += static_cast<char>(16 * hex_to_decimal(uri[i + 1]) + hex_to_decimal(uri[i + 2]));
+            if (m_uri[i] == '%' && i + 2 < len){
+                decodeUri += static_cast<char>(16 * hex_to_decimal(m_uri[i + 1]) + hex_to_decimal(m_uri[i + 2]));
                 i += 3;
             }
             else {
-                decodeUri += uri[i];
+                decodeUri += m_uri[i];
                 ++i;
             }
         }
 
-        uri = decodeUri;
+        m_uri = decodeUri;
     }
 
     void http_response_send(const std::string& response) {
-        send(sock, response.c_str(), static_cast<int>(response.size()), 0);
+        send(m_sock, response.c_str(), static_cast<int>(response.size()), 0);
     }
 
     void serve_file(const fs::path& p) {
@@ -360,8 +364,8 @@ class HttpConnection {
             response += "Content-Length: " + std::to_string(content.size()) + "\r\n";
             response += "\r\n";
 
-            send(sock, response.c_str(), static_cast<int>(response.size()), 0);
-            send(sock, content.c_str(), static_cast<int>(content.size()), 0);
+            send(m_sock, response.c_str(), static_cast<int>(response.size()), 0);
+            send(m_sock, content.c_str(), static_cast<int>(content.size()), 0);
         }
         else {
             http_response_send(HTTP_404_NOT_FOUND);
@@ -408,50 +412,51 @@ class HttpConnection {
         response += "Content-Length: " + std::to_string(body.size()) + "\r\n\r\n";
         response += body;
 
-        send(sock, response.c_str(), static_cast<int>(response.size()), 0);
+        send(m_sock, response.c_str(), static_cast<int>(response.size()), 0);
     }
 
     void process_request() {
         size_t index = 0;
 
-        // request too large or it is not a valid http request.
-        if ((index = request.find("\r\n\r\n")) == std::string::npos) {
+        // m_request too large or it is not a valid http m_request.
+        if ((index = m_request.find("\r\n\r\n")) == std::string::npos) {
             http_response_send(HTTP_500_INTERNAL_SERVER_ERROR);
             return;
         }
 
         // RFC 2616: parse the first line.
-        // 1st space not detected, this is not a valid http request.
-        if ((index = request.find(" ")) == std::string::npos) {
+        // 1st space not detected, this is not a valid http m_request.
+        if ((index = m_request.find(" ")) == std::string::npos) {
             http_response_send(HTTP_500_INTERNAL_SERVER_ERROR);
             return;
         }
 
-        method = request.substr(0, index);
-        if (!string_icompare("GET", method)) {
+        m_method = m_request.substr(0, index);
+        if (!string_icompare("GET", m_method)) {
             http_response_send(HTTP_405_METHOD_NOT_ALLOWED);
             return;
         }
 
-        // 2nd space not detected, this is not a valid http request.
+        // 2nd space not detected, this is not a valid http m_request.
         size_t indexBegin = index + 1;
-        if ((index = request.find(" ", indexBegin)) == std::string::npos) {
+        if ((index = m_request.find(" ", indexBegin)) == std::string::npos) {
             http_response_send(HTTP_500_INTERNAL_SERVER_ERROR);
             return;
         }
 
-        uri = request.substr(indexBegin, index - indexBegin);
-        if (uri.size() > HTTP_URI_MAX_LEN) {   // uri too long.
+        m_uri = m_request.substr(indexBegin, index - indexBegin);
+        if (m_uri.size() > HTTP_URI_MAX_LEN) {   // m_uri too long.
             http_response_send(HTTP_414_URI_TOO_LONG);
             return;
         }
 
-        fs::path p{ rootPath };
+        fs::path p{ m_fsRootPath };
         uri_decode();   // decode the percent-encoding.
 
-        if (uri != "/") {   // if uri is not '/', concatenate the path.
-            p /= conv_utf8_to_unicode(uri);   // It is necessary to use Unicode to process paths on the Windows platform.
+        if (m_uri != "/") {   // if m_uri is not '/', concatenate the path.
+			p.concat(conv_utf8_to_unicode(m_uri));   // It is necessary to use Unicode to process paths on the Windows platform.
         }
+		p = p.lexically_normal();
 
         std::osyncstream(std::cout) << conv_unicode_to_ascii(p.wstring()) << "\n";
 
@@ -467,18 +472,20 @@ class HttpConnection {
     }
 public:
     HttpConnection(SOCKET _sock, const std::string& _rootPath) :
-        sock{ _sock },
-        rootPath{ conv_ascii_to_unicode(_rootPath) },
-        request(HTTP_RECV_BUFFER_LEN, char{})
-    {}
+        m_sock{ _sock },
+        m_request(HTTP_RECV_BUFFER_LEN, char{})
+    {
+        std::wstring rootPath = conv_ascii_to_unicode(_rootPath);
+        m_fsRootPath = fs::absolute(rootPath).lexically_normal();
+    }
 
     ~HttpConnection() {
-        if (sock != INVALID_SOCKET) {
-            if (shutdown(sock, SD_SEND) != 0) {   // half close.
+        if (m_sock != INVALID_SOCKET) {
+            if (shutdown(m_sock, SD_SEND) != 0) {   // half close.
                 print_last_sys_error("error shutdown()");
             }
 
-            if (closesocket(sock) != 0) {
+            if (closesocket(m_sock) != 0) {
                 print_last_sys_error("error closesocket()");
             }
         }
@@ -487,12 +494,12 @@ public:
     void start() {
         // set receive time out.
         uint32_t recvTimeOut = HTTP_RECV_TIMEOUT_SEC * 1000;
-        if (setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&recvTimeOut), sizeof(recvTimeOut)) != 0) {
+        if (setsockopt(m_sock, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&recvTimeOut), sizeof(recvTimeOut)) != 0) {
             print_last_sys_error("error setsockopt() on SO_RCVTIMEO");
             return;
         }
 
-        auto len = recv(sock, &request[0], HTTP_RECV_BUFFER_LEN, 0);
+        auto len = recv(m_sock, &m_request[0], HTTP_RECV_BUFFER_LEN, 0);
 
         if (len < 0) {
             print_last_sys_error("error recv()");
@@ -506,9 +513,10 @@ public:
     }
 };
 
-class HttpFileServer {
-    SOCKET server;
-    ThreadPool pool;
+class HttpFileServer 
+{
+    SOCKET m_server;
+    ThreadPool m_pool;
 
     void bind_listen(const std::string& ip, uint16_t port) {
         struct sockaddr_in addr_in {};
@@ -524,30 +532,30 @@ class HttpFileServer {
             throw_user_error("given ip is not a valid IPv4 dotted-decimal string or a valid IPv6 address string");
         }
 
-        if (bind(server, (const struct sockaddr*)(&addr_in), sizeof(struct sockaddr_in)) != 0) {
+        if (bind(m_server, (const struct sockaddr*)(&addr_in), sizeof(struct sockaddr_in)) != 0) {
             throw_last_sys_error("error bind()");
         }
 
-        if (listen(server, SOMAXCONN) != 0) {
+        if (listen(m_server, SOMAXCONN) != 0) {
             throw_last_sys_error("error listen()");
         }
 
         int option = 1;
-        if (setsockopt(server, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&option), sizeof(option)) != 0) {
+        if (setsockopt(m_server, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&option), sizeof(option)) != 0) {
             throw_last_sys_error("error setsockopt() on SO_REUSEADDR");
         }
     }
 public:
     HttpFileServer() {
-        server = socket(AF_INET, SOCK_STREAM, 0);
-        if (server == INVALID_SOCKET) {
+        m_server = socket(AF_INET, SOCK_STREAM, 0);
+        if (m_server == INVALID_SOCKET) {
             throw_last_sys_error("error socket()");
         }
     }
 
     ~HttpFileServer() {
-        if (server != INVALID_SOCKET) {
-            if (closesocket(server) != 0) {
+        if (m_server != INVALID_SOCKET) {
+            if (closesocket(m_server) != 0) {
                 print_last_sys_error("error closesocket()");
             }
         }
@@ -557,13 +565,13 @@ public:
         bind_listen(ip, port);
 
         while (true) {
-            SOCKET s = accept(server, nullptr, nullptr);
+            SOCKET s = accept(m_server, nullptr, nullptr);
             if (s == INVALID_SOCKET) {
                 throw_last_sys_error("error accept()");
             }
 
             auto connection = std::make_shared<HttpConnection>(s, rootPath);
-            pool.add_task([connection]() { connection->start(); });
+            m_pool.add_task([connection]() { connection->start(); });
         }
     }
 };
@@ -582,7 +590,7 @@ int main(int argc, char* argv[]) {
     try {
         auto port = static_cast<uint16_t>(std::stoi(argv[1]));
         HttpFileServer hfs;
-
+        std::cout << "Server is running on port " << port << "\n";
         hfs.serve("0.0.0.0", port, argv[2]);
     }
     catch (const std::invalid_argument& e) {
