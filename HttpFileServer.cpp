@@ -450,7 +450,8 @@ class HttpConnection
     {
         std::string response = "HTTP/1.1 200 OK\r\nServer: Miku Server\r\nConnection: close\r\n";
         std::string body = "<html><header><h1>Miku Server</h1></header><body>";
-        body += "Current dir: " + conv_unicode_to_utf8(p.wstring()) + "<br><br>";
+        body += "Current directory: " + conv_unicode_to_utf8(p.wstring()) + "<br>";
+        body += "<a href='../'>Go to parent directory</a><br><br>";
 
         for (const auto& entry : fs::directory_iterator(p, fs::directory_options::skip_permission_denied)) 
         {
@@ -514,7 +515,8 @@ class HttpConnection
 
         m_uri = m_request.substr(indexBegin, index - indexBegin);
         if (m_uri.size() > HTTP_URI_MAX_LEN) 
-        {   // m_uri too long.
+        {   
+            // m_uri too long.
             http_response_send(HTTP_414_URI_TOO_LONG);
             return;
         }
@@ -540,7 +542,8 @@ class HttpConnection
             serve_file(p);
         }
         else 
-        {   // not directory or file are considered as not found.
+        {   
+            // not directory or file are considered as not found.
             http_response_send(HTTP_404_NOT_FOUND);
         }
     }
@@ -558,7 +561,8 @@ public:
         if (m_sock != INVALID_SOCKET)
         {
             if (shutdown(m_sock, SD_SEND) != 0) 
-            {   // half close.
+            {   
+                // half close.
                 print_last_sys_error("error shutdown()");
             }
 
