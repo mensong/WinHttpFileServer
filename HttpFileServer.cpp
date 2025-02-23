@@ -33,7 +33,8 @@
 using namespace std::string_literals;
 namespace fs = std::filesystem;
 
-static std::string build_response_with_http_code(uint16_t code, const std::string& msg){
+static std::string build_response_with_http_code(uint16_t code, const std::string& msg)
+{
     std::string ret;
     std::string html = "<html><h1>"s + msg + "</h1></html>"s;
 
@@ -56,7 +57,7 @@ constexpr uint32_t HTTP_RECV_BUFFER_LEN = 8192;
 constexpr uint32_t HTTP_RECV_TIMEOUT_SEC = 5;
 constexpr uint32_t HTTP_URI_MAX_LEN = 1024;
 
-static std::map<std::string, std::string> HTTP_MIME_TABLE{
+static std::map<std::string, std::string> HTTP_MIME_TABLE {
     {".css" , "text/css"},
     {".gif" , "image/gif"},
     {".htm" , "text/html"},
@@ -76,37 +77,45 @@ static std::map<std::string, std::string> HTTP_MIME_TABLE{
 	learned from asio library, thanks to Christopher Kohlhoff's articles on std::error_code:
 	http://blog.think-async.com/2010/04/system-error-support-in-c0x-part-5.html
 */
-static std::error_code get_last_sys_ec(){
+static std::error_code get_last_sys_ec()
+{
     return std::error_code(GetLastError(), std::system_category());
 }
 
-static void print_last_sys_error(const std::string& msg, const std::source_location& slc = std::source_location::current()){
+static void print_last_sys_error(const std::string& msg, const std::source_location& slc = std::source_location::current())
+{
     auto ec = get_last_sys_ec();
     std::osyncstream(std::cerr) << std::format("{}, {}({}): {}, {}\n", slc.file_name(), slc.function_name(), slc.line(), msg, ec.message());
 }
 
-static void print_user_error(const std::string& msg, const std::source_location& slc = std::source_location::current()){
+static void print_user_error(const std::string& msg, const std::source_location& slc = std::source_location::current())
+{
     std::osyncstream(std::cerr) << std::format("{}, {}({}): {}\n", slc.file_name(), slc.function_name(), slc.line(), msg);
 }
 
-static void throw_last_sys_error(const std::string& msg, const std::source_location& slc = std::source_location::current()) {
+static void throw_last_sys_error(const std::string& msg, const std::source_location& slc = std::source_location::current()) 
+{
     auto ec = get_last_sys_ec();
     throw std::runtime_error{ std::format("{}, {}({}): {}, {}", slc.file_name(), slc.function_name(), slc.line(), msg, ec.message()) };
 }
 
-static void throw_user_error(const std::string& msg, const std::source_location& slc = std::source_location::current()){
+static void throw_user_error(const std::string& msg, const std::source_location& slc = std::source_location::current())
+{
     throw std::runtime_error{ std::format("{}, {}({}): {}", slc.file_name(), slc.function_name(), slc.line(), msg) };
 }
 
-static std::wstring conv_ascii_to_unicode(const std::string& str) {
+static std::wstring conv_ascii_to_unicode(const std::string& str) 
+{
     auto len = MultiByteToWideChar(CP_ACP, 0, str.c_str(), -1, nullptr, 0);
-    if (len == 0) {
+    if (len == 0) 
+    {
         throw_last_sys_error("conv_ascii_to_unicode() failed");
     }
 
     std::wstring buffer(len, wchar_t{});
     len = MultiByteToWideChar(CP_ACP, 0, str.c_str(), -1, &buffer[0], len);
-    if (len == 0) {
+    if (len == 0) 
+    {
         throw_last_sys_error("conv_ascii_to_unicode() failed");
     }
 
@@ -125,15 +134,18 @@ static std::wstring conv_ascii_to_unicode(const std::string& str) {
     return buffer;
 }
 
-static std::string conv_unicode_to_ascii(const std::wstring& wstr) {
+static std::string conv_unicode_to_ascii(const std::wstring& wstr)
+{
     auto len = WideCharToMultiByte(CP_ACP, 0, wstr.c_str(), -1, nullptr, 0, nullptr, nullptr);
-    if (len == 0) {
+    if (len == 0)
+    {
         throw_last_sys_error("conv_unicode_to_ascii() failed");
     }
 
     std::string buffer(len, char{});
 
-    if (WideCharToMultiByte(CP_ACP, 0, wstr.c_str(), -1, &buffer[0], len, nullptr, nullptr) == 0) {
+    if (WideCharToMultiByte(CP_ACP, 0, wstr.c_str(), -1, &buffer[0], len, nullptr, nullptr) == 0)
+    {
         throw_last_sys_error("conv_unicode_to_ascii() failed");
     }
 
@@ -141,15 +153,18 @@ static std::string conv_unicode_to_ascii(const std::wstring& wstr) {
     return buffer;
 }
 
-static std::wstring conv_utf8_to_unicode(const std::string& str) {
+static std::wstring conv_utf8_to_unicode(const std::string& str) 
+{
     auto len = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, nullptr, 0);
-    if (len == 0) {
+    if (len == 0) 
+    {
         throw_last_sys_error("conv_utf8_to_unicode() failed");
     }
 
     std::wstring buffer(len, wchar_t{});
     MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, &buffer[0], len - 1);
-    if (len == 0) {
+    if (len == 0) 
+    {
         throw_last_sys_error("conv_utf8_to_unicode() failed");
     }
 
@@ -157,36 +172,44 @@ static std::wstring conv_utf8_to_unicode(const std::string& str) {
     return buffer;
 }
 
-static std::string conv_utf8_to_ascii(const std::string& str) {
+static std::string conv_utf8_to_ascii(const std::string& str) 
+{
     std::wstring wstr = conv_utf8_to_unicode(str);
     return conv_unicode_to_ascii(wstr);
 }
 
-static std::string conv_unicode_to_utf8(const std::wstring& wstr) {
+static std::string conv_unicode_to_utf8(const std::wstring& wstr) 
+{
     std::string result;
 
-    for (wchar_t c : wstr) {
+    for (wchar_t c : wstr) 
+    {
         auto i = static_cast<uint32_t>(c);   // as you can see, the parameter could also be u32string.
 
-        if (i < 0x80) {
+        if (i < 0x80) 
+        {
             result += static_cast<char>(i);
         }
-        else if (i < 0x800) {
+        else if (i < 0x800) 
+        {
             result += static_cast<char>(0xc0 | (i >> 6));
             result += static_cast<char>(0x80 | (i & 0x3f));
         }
-        else if (i < 0x10000) {
+        else if (i < 0x10000) 
+        {
             result += static_cast<char>(0xe0 | (i >> 12));
             result += static_cast<char>(0x80 | ((i >> 6) & 0x3f));
             result += static_cast<char>(0x80 | (i & 0x3f));
         }
-        else if (i < 0x200000) {
+        else if (i < 0x200000) 
+        {
             result += static_cast<char>(0xf0 | (i >> 18));
             result += static_cast<char>(0x80 | ((i >> 12) & 0x3f));
             result += static_cast<char>(0x80 | ((i >> 6) & 0x3f));
             result += static_cast<char>(0x80 | (i & 0x3f));
         }
-        else {
+        else 
+        {
             result += static_cast<char>(0xf8 | (i >> 24));
             result += static_cast<char>(0x80 | ((i >> 18) & 0x3f));
             result += static_cast<char>(0x80 | ((i >> 12) & 0x3f));
@@ -214,16 +237,21 @@ public:
     explicit ThreadPool(size_t numOfWorkers)
         : m_running{ true }
     {
-        for (size_t i = 0; i < numOfWorkers; ++i) {
+        for (size_t i = 0; i < numOfWorkers; ++i) 
+        {
             m_workers.emplace_back([this]() {
-                while (true) {
+                while (true) 
+                {
                     std::function<void()> task;
 
                     {
                         std::unique_lock<std::mutex> lock{ m_mut };
-                        m_cv.wait(lock, [this]() { return !m_running || !m_taskQueue.empty(); });
+                        m_cv.wait(lock, [this]() { 
+                            return !m_running || !m_taskQueue.empty(); 
+                        });
 
-                        if (!m_running && m_taskQueue.empty()) {
+                        if (!m_running && m_taskQueue.empty()) 
+                        {
                             return;
                         }
 
@@ -237,9 +265,13 @@ public:
         }
     }
 
-    ThreadPool() : ThreadPool{ std::thread::hardware_concurrency() } {}
+    ThreadPool() 
+        : ThreadPool{ std::thread::hardware_concurrency() } 
+    {
+    }
 
-    ~ThreadPool() noexcept {
+    ~ThreadPool() noexcept 
+    {
         {
             /* first set m_running to false. */
             std::unique_lock<std::mutex> lock{ m_mut };
@@ -247,12 +279,14 @@ public:
         }
 
         m_cv.notify_all();
-        for (std::thread& worker : m_workers) {
+        for (std::thread& worker : m_workers)
+        {
             worker.join();
         }
     }
 
-    void add_task(std::function<void()> task) {
+    void add_task(std::function<void()> task) 
+    {
         {
             std::unique_lock<std::mutex> lock{ m_mut };
             m_taskQueue.emplace(std::move(task));
@@ -275,12 +309,14 @@ public:
         WSADATA wsaData;
 
         WORD wVersionRequested = MAKEWORD(2, 2);
-        if (WSAStartup(wVersionRequested, &wsaData) != 0) {
+        if (WSAStartup(wVersionRequested, &wsaData) != 0) 
+        {
             throw_last_sys_error("WSAStartup() failed");
         }
     }
 
-    ~WSASetup() noexcept {
+    ~WSASetup() noexcept 
+    {
         WSACleanup();
     }
 };
@@ -298,37 +334,48 @@ class HttpConnection
     std::string m_method;
     std::string m_uri;
 
-    bool string_icompare(const std::string& left, const std::string& right){
-        return std::ranges::equal(left, right, [](char c1, char c2){
-            return std::toupper(c1) == std::toupper(c2);
-        });
+    bool string_icompare(const std::string& left, const std::string& right)
+    {
+        return std::ranges::equal(left, right, [](char c1, char c2) {
+                return std::toupper(c1) == std::toupper(c2);
+            }
+        );
     }
 
-    int hex_to_decimal(char c) {
-        if (c >= '0' && c <= '9'){
+    int hex_to_decimal(char c) 
+    {
+        if (c >= '0' && c <= '9')
+        {
             return c - '0';
         }
-        else if (c >= 'a' && c <= 'z'){
+        else if (c >= 'a' && c <= 'z')
+        {
             return c - 'a' + 10;
         }
-        else if (c >= 'A' && c <= 'Z'){
+        else if (c >= 'A' && c <= 'Z')
+        {
             return c - 'A' + 10;
         }
 
         return -1;
     }
 
-    void uri_decode() {   // m_uri may contain percent-encoding(like %20), in RFC 3986
+    void uri_decode() 
+    {   
+        // m_uri may contain percent-encoding(like %20), in RFC 3986
         std::string decodeUri;
         auto len = m_uri.size();
 
         size_t i = 0;
-        while (i < len){
-            if (m_uri[i] == '%' && i + 2 < len){
+        while (i < len)
+        {
+            if (m_uri[i] == '%' && i + 2 < len)
+            {
                 decodeUri += static_cast<char>(16 * hex_to_decimal(m_uri[i + 1]) + hex_to_decimal(m_uri[i + 2]));
                 i += 3;
             }
-            else {
+            else 
+            {
                 decodeUri += m_uri[i];
                 ++i;
             }
@@ -337,24 +384,29 @@ class HttpConnection
         m_uri = decodeUri;
     }
 
-    void http_response_send(const std::string& response) {
+    void http_response_send(const std::string& response) 
+    {
         send(m_sock, response.c_str(), static_cast<int>(response.size()), 0);
     }
 
-    void serve_file(const fs::path& p) {
+    void serve_file(const fs::path& p) 
+    {
         auto extension = p.extension().string();
         auto iter = HTTP_MIME_TABLE.find(extension);
         std::string contentType;
 
-        if (iter != HTTP_MIME_TABLE.cend()) {
+        if (iter != HTTP_MIME_TABLE.cend()) 
+        {
             contentType = iter->second;
         }
-        else {
+        else
+        {
             contentType = "text/plain";
         }
 
         std::ifstream file(p, std::ios::binary);
-        if (file) {
+        if (file) 
+        {
             std::stringstream buffer;
             buffer << file.rdbuf();
             std::string content = buffer.str();
@@ -367,42 +419,53 @@ class HttpConnection
             send(m_sock, response.c_str(), static_cast<int>(response.size()), 0);
             send(m_sock, content.c_str(), static_cast<int>(content.size()), 0);
         }
-        else {
+        else 
+        {
             http_response_send(HTTP_404_NOT_FOUND);
         }
     }
 
-    std::string build_file_size(uintmax_t size) {   // beautify format.
-        if (size < 1024) {
+    std::string build_file_size(uintmax_t size) 
+    {  
+        // beautify format.
+        if (size < 1024) 
+        {
             return std::to_string(size) + " Bytes";
         }
-        else if (size >= 1024 && size < 1024 * 1024) {
+        else if (size >= 1024 && size < 1024 * 1024) 
+        {
             return std::to_string(size / 1024) + " KB";
         }
-        else if (size >= 1024 * 1024 && size < 1024 * 1024 * 1024) {
+        else if (size >= 1024 * 1024 && size < 1024 * 1024 * 1024) 
+        {
             return std::to_string(size / 1024 / 1024) + " MB";
         }
-        else {
+        else 
+        {
             return std::to_string(size / 1024 / 1024 / 1024) + " GB";
         }
     }
 
-    void serve_dir(const fs::path& p) {
+    void serve_dir(const fs::path& p) 
+    {
         std::string response = "HTTP/1.1 200 OK\r\nServer: Miku Server\r\nConnection: close\r\n";
         std::string body = "<html><header><h1>Miku Server</h1></header><body>";
         body += "Current dir: " + conv_unicode_to_utf8(p.wstring()) + "<br><br>";
 
-        for (const auto& entry : fs::directory_iterator(p, fs::directory_options::skip_permission_denied)) {
+        for (const auto& entry : fs::directory_iterator(p, fs::directory_options::skip_permission_denied)) 
+        {
             /*
             * It is necessary to use Unicode to process paths on the Windows platform,
             * while for HTML pages, we use UTF-8.
             */
             std::string name = conv_unicode_to_utf8(entry.path().filename().wstring());
 
-            if (fs::is_directory(entry)) {
+            if (fs::is_directory(entry)) 
+            {
                 body += "<a href='" + name + "/'>" + name + "/</a><br>";
             }
-            else {
+            else 
+            {
                 body += "<a href='" + name + "'>" + name + "</a>   " + build_file_size(fs::file_size(entry)) + " <br>";
             }
         }
@@ -415,37 +478,43 @@ class HttpConnection
         send(m_sock, response.c_str(), static_cast<int>(response.size()), 0);
     }
 
-    void process_request() {
+    void process_request() 
+    {
         size_t index = 0;
 
         // m_request too large or it is not a valid http m_request.
-        if ((index = m_request.find("\r\n\r\n")) == std::string::npos) {
+        if ((index = m_request.find("\r\n\r\n")) == std::string::npos) 
+        {
             http_response_send(HTTP_500_INTERNAL_SERVER_ERROR);
             return;
         }
 
         // RFC 2616: parse the first line.
         // 1st space not detected, this is not a valid http m_request.
-        if ((index = m_request.find(" ")) == std::string::npos) {
+        if ((index = m_request.find(" ")) == std::string::npos) 
+        {
             http_response_send(HTTP_500_INTERNAL_SERVER_ERROR);
             return;
         }
 
         m_method = m_request.substr(0, index);
-        if (!string_icompare("GET", m_method)) {
+        if (!string_icompare("GET", m_method)) 
+        {
             http_response_send(HTTP_405_METHOD_NOT_ALLOWED);
             return;
         }
 
         // 2nd space not detected, this is not a valid http m_request.
         size_t indexBegin = index + 1;
-        if ((index = m_request.find(" ", indexBegin)) == std::string::npos) {
+        if ((index = m_request.find(" ", indexBegin)) == std::string::npos) 
+        {
             http_response_send(HTTP_500_INTERNAL_SERVER_ERROR);
             return;
         }
 
         m_uri = m_request.substr(indexBegin, index - indexBegin);
-        if (m_uri.size() > HTTP_URI_MAX_LEN) {   // m_uri too long.
+        if (m_uri.size() > HTTP_URI_MAX_LEN) 
+        {   // m_uri too long.
             http_response_send(HTTP_414_URI_TOO_LONG);
             return;
         }
@@ -453,61 +522,75 @@ class HttpConnection
         fs::path p{ m_fsRootPath };
         uri_decode();   // decode the percent-encoding.
 
-        if (m_uri != "/") {   // if m_uri is not '/', concatenate the path.
+        if (m_uri != "/") 
+        {   
+            // if m_uri is not '/', concatenate the path.
 			p.concat(conv_utf8_to_unicode(m_uri));   // It is necessary to use Unicode to process paths on the Windows platform.
         }
 		p = p.lexically_normal();
 
         std::osyncstream(std::cout) << conv_unicode_to_ascii(p.wstring()) << "\n";
 
-        if (fs::is_directory(p)) {
+        if (fs::is_directory(p)) 
+        {
             serve_dir(p);
         }
-        else if (fs::is_regular_file(p)) {
+        else if (fs::is_regular_file(p)) 
+        {
             serve_file(p);
         }
-        else {   // not directory or file are considered as not found.
+        else 
+        {   // not directory or file are considered as not found.
             http_response_send(HTTP_404_NOT_FOUND);
         }
     }
 public:
-    HttpConnection(SOCKET _sock, const std::string& _rootPath) :
-        m_sock{ _sock },
-        m_request(HTTP_RECV_BUFFER_LEN, char{})
+    HttpConnection(SOCKET _sock, const std::string& _rootPath) 
+        : m_sock{ _sock }
+        , m_request(HTTP_RECV_BUFFER_LEN, char{})
     {
         std::wstring rootPath = conv_ascii_to_unicode(_rootPath);
         m_fsRootPath = fs::absolute(rootPath).lexically_normal();
     }
 
-    ~HttpConnection() {
-        if (m_sock != INVALID_SOCKET) {
-            if (shutdown(m_sock, SD_SEND) != 0) {   // half close.
+    ~HttpConnection() 
+    {
+        if (m_sock != INVALID_SOCKET)
+        {
+            if (shutdown(m_sock, SD_SEND) != 0) 
+            {   // half close.
                 print_last_sys_error("error shutdown()");
             }
 
-            if (closesocket(m_sock) != 0) {
+            if (closesocket(m_sock) != 0) 
+            {
                 print_last_sys_error("error closesocket()");
             }
         }
     }
 
-    void start() {
+    void start() 
+    {
         // set receive time out.
         uint32_t recvTimeOut = HTTP_RECV_TIMEOUT_SEC * 1000;
-        if (setsockopt(m_sock, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&recvTimeOut), sizeof(recvTimeOut)) != 0) {
+        if (setsockopt(m_sock, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&recvTimeOut), sizeof(recvTimeOut)) != 0)
+        {
             print_last_sys_error("error setsockopt() on SO_RCVTIMEO");
             return;
         }
 
         auto len = recv(m_sock, &m_request[0], HTTP_RECV_BUFFER_LEN, 0);
 
-        if (len < 0) {
+        if (len < 0) 
+        {
             print_last_sys_error("error recv()");
         }
-        else if (len == 0) {
+        else if (len == 0) 
+        {
             print_user_error("Connection has been closed, nothing would do.\n");
         }
-        else {
+        else 
+        {
             process_request();
         }
     }
@@ -518,55 +601,69 @@ class HttpFileServer
     SOCKET m_server;
     ThreadPool m_pool;
 
-    void bind_listen(const std::string& ip, uint16_t port) {
+    void bind_listen(const std::string& ip, uint16_t port) 
+    {
         struct sockaddr_in addr_in {};
 
         addr_in.sin_family = AF_INET;
         addr_in.sin_port = htons(port);   // host byte order to network byte order.
         auto ret = inet_pton(AF_INET, ip.c_str(), &(addr_in.sin_addr));
 
-        if (ret < 0) {
+        if (ret < 0) 
+        {
             throw_last_sys_error("error inet_pton()");
         }
-        else if (ret == 0) {
+        else if (ret == 0) 
+        {
             throw_user_error("given ip is not a valid IPv4 dotted-decimal string or a valid IPv6 address string");
         }
 
-        if (bind(m_server, (const struct sockaddr*)(&addr_in), sizeof(struct sockaddr_in)) != 0) {
+        if (bind(m_server, (const struct sockaddr*)(&addr_in), sizeof(struct sockaddr_in)) != 0) 
+        {
             throw_last_sys_error("error bind()");
         }
 
-        if (listen(m_server, SOMAXCONN) != 0) {
+        if (listen(m_server, SOMAXCONN) != 0) 
+        {
             throw_last_sys_error("error listen()");
         }
 
         int option = 1;
-        if (setsockopt(m_server, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&option), sizeof(option)) != 0) {
+        if (setsockopt(m_server, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&option), sizeof(option)) != 0) 
+        {
             throw_last_sys_error("error setsockopt() on SO_REUSEADDR");
         }
     }
 public:
-    HttpFileServer() {
+    HttpFileServer() 
+    {
         m_server = socket(AF_INET, SOCK_STREAM, 0);
-        if (m_server == INVALID_SOCKET) {
+        if (m_server == INVALID_SOCKET) 
+        {
             throw_last_sys_error("error socket()");
         }
     }
 
-    ~HttpFileServer() {
-        if (m_server != INVALID_SOCKET) {
-            if (closesocket(m_server) != 0) {
+    ~HttpFileServer() 
+    {
+        if (m_server != INVALID_SOCKET) 
+        {
+            if (closesocket(m_server) != 0) 
+            {
                 print_last_sys_error("error closesocket()");
             }
         }
     }
 
-    void serve(const std::string& ip, uint16_t port, const std::string& rootPath) {
+    void serve(const std::string& ip, uint16_t port, const std::string& rootPath) 
+    {
         bind_listen(ip, port);
 
-        while (true) {
+        while (true) 
+        {
             SOCKET s = accept(m_server, nullptr, nullptr);
-            if (s == INVALID_SOCKET) {
+            if (s == INVALID_SOCKET)
+            {
                 throw_last_sys_error("error accept()");
             }
 
@@ -576,30 +673,38 @@ public:
     }
 };
 
-int main(int argc, char* argv[]) {
-    if (argc != 3) {
+int main(int argc, char* argv[]) 
+{
+    if (argc != 3)
+    {
         std::cerr << "Usage: " << argv[0] << " <port> <root_path>.\n";
         return -1;
     }
 
-    if (!fs::is_directory(argv[2])) {
+    if (!fs::is_directory(argv[2])) 
+    {
         std::cerr << "init failed, given root_path: " << argv[2] << " is not a directory, this program won't work on that.";
         return -1;
     }
 
-    try {
+    try 
+    {
         auto port = static_cast<uint16_t>(std::stoi(argv[1]));
         HttpFileServer hfs;
-        std::cout << "Server is running on port " << port << "\n";
+        std::cout << "Server is running on port " << port << std::endl;
+        std::cout << "Visit http://127.0.0.1:" << port << std::endl;
         hfs.serve("0.0.0.0", port, argv[2]);
     }
-    catch (const std::invalid_argument& e) {
+    catch (const std::invalid_argument& e) 
+    {
         std::cerr << e.what() << ", please give a valid port, like 8039, not " << argv[1] << "\n";
     }
-    catch (const std::out_of_range& e) {
+    catch (const std::out_of_range& e)
+    {
         std::cerr << e.what() << ", port can't be that big! please give a valid port, like 8039, not " << argv[1] << "\n";
     }
-    catch (const std::exception& e) {
+    catch (const std::exception& e) 
+    {
         std::cerr << e.what() << "\n";
     }
 
