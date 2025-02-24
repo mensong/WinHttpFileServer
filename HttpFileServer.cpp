@@ -425,9 +425,10 @@ class HttpConnection
     bool send_chunked_file(SOCKET client, const wchar_t* file_path, const std::string& contentType)
     {
         bool ret = false;
+        bool isRealError = false;
         HANDLE hFile = NULL;
         HANDLE hMapping = NULL;
-        LPVOID mapped = NULL;
+        //LPVOID mapped = NULL;
 
         do
         {
@@ -438,11 +439,11 @@ class HttpConnection
             hMapping = CreateFileMapping(hFile, NULL, PAGE_READONLY, 0, 0, NULL);
             if (!hMapping || hMapping == INVALID_HANDLE_VALUE)
                 break;
-            mapped = MapViewOfFile(hMapping, FILE_MAP_READ, 0, 0, 0);
-            if (!mapped)
+                        
+            LARGE_INTEGER fileSize = { 0 };
+            if (!GetFileSizeEx(hFile, &fileSize))
                 break;
-
-            DWORD file_size = GetFileSize(hFile, NULL);
+            LONGLONG file_size = fileSize.QuadPart;
 
             // 发送HTTP头
             std::string header = "HTTP/1.1 200 OK\r\nServer: Miku Server\r\nConnection: close\r\n";
@@ -451,69 +452,98 @@ class HttpConnection
             header += "\r\n";
             send(client, header.c_str(), static_cast<int>(header.size()), 0);
 
-            // 分块传输（64KB/块）
-            const DWORD CHUNK_SIZE = 65536;
-            char* data = static_cast<char*>(mapped);
-            DWORD remaining = file_size;
-
-#pragma region 限速
-            DWORD start_send_time = ::GetTickCount();
-            bool pause = false;
-#pragma endregion
-
-            char chunk_head[22];
-            while (remaining > 0)
+            // 分块映射
+            DWORD offset = 0;
+            while (offset < file_size) 
             {
-#pragma region 限速
-                DWORD st = ::GetTickCount() - start_send_time;
-                if (st != 0)
+                DWORD block_size = min(100 * 1024 * 1024, file_size - offset); // 100MB/块，用于支持大于4GB的文件
+                LPVOID block = MapViewOfFile(hMapping, FILE_MAP_READ, 0, offset, block_size);
+                // 处理当前块...
+                if (!block)
                 {
-                    double speed = (data - static_cast<char*>(mapped)) / (double)(st);
-                    printf("%.2f KB/s        \r", speed);
+                    break;
+                }
 
-                    if (m_speedLimitKbS > 0)
-                    {
-                        if (speed > m_speedLimitKbS)
-                            pause = true;
-                        else
-                            pause = false;
-                    }
-                }
-                if (pause)
-                {                    
-                    Sleep(10);
-                    continue;
-                }
+				// 分块传输（64KB/块）
+				const DWORD CHUNK_SIZE = 65536;
+				char* data = static_cast<char*>(block);
+				DWORD remaining = block_size;
+
+#pragma region 限速
+				DWORD start_send_time = ::GetTickCount();
+				bool pause = false;
 #pragma endregion
 
-                DWORD send_size = min(CHUNK_SIZE, remaining);
+                //分chunked
+				char chunk_head[22];
+				while (remaining > 0)
+				{
+#pragma region 限速
+					DWORD st = ::GetTickCount() - start_send_time;
+					if (st != 0)
+					{
+						double speed = (data - static_cast<char*>(block)) / (double)(st);
+						printf("%.2f KB/s        \r", speed);
 
-                // 生成chunk头部                
-                int len = sprintf_s(chunk_head, sizeof(chunk_head), "%X\r\n", send_size);
-                int sended_status = send(client, chunk_head, len, 0);
-                if (sended_status <= 0)
-                    break;
-                // 发送数据块
-                sended_status = send(client, data, send_size, 0);
-                if (sended_status <= 0)
-                    break;
-                sended_status = send(client, "\r\n", 2, 0);
-                if (sended_status <= 0)
-                    break;
+						if (m_speedLimitKbS > 0)
+						{
+							if (speed > m_speedLimitKbS)
+								pause = true;
+							else
+								pause = false;
+						}
+					}
+					if (pause)
+					{
+						Sleep(10);
+						continue;
+					}
+#pragma endregion
 
-                data += send_size;
-                remaining -= send_size;
+					DWORD send_size = min(CHUNK_SIZE, remaining);
+
+					// 生成chunk头部                
+					int len = sprintf_s(chunk_head, sizeof(chunk_head), "%X\r\n", send_size);
+					int sended_status = send(client, chunk_head, len, 0);
+                    if (sended_status <= 0)
+                    {
+                        isRealError = true;
+                        break;
+                    }
+					// 发送数据块
+					sended_status = send(client, data, send_size, 0);
+					if (sended_status <= 0)
+                    {
+                        isRealError = true;
+                        break;
+                    }
+					sended_status = send(client, "\r\n", 2, 0);
+					if (sended_status <= 0)
+                    {
+                        isRealError = true;
+                        break;
+                    }
+
+					data += send_size;
+					remaining -= send_size;
+				}
+
+				UnmapViewOfFile(block);
+				offset += block_size;
+
+                if (isRealError)
+                    break;
             }
 
             // 结束块
             send(client, "0\r\n\r\n", 5, 0);
 
-            ret = true;
+            ret = !isRealError;
         } while (false);
 
         // 释放资源
-        if (mapped)
-			UnmapViewOfFile(mapped);
+   //     if (mapped)
+			//UnmapViewOfFile(mapped);
         if (hMapping && hMapping != INVALID_HANDLE_VALUE)
 			CloseHandle(hMapping);
         if (hFile && hFile != INVALID_HANDLE_VALUE)
