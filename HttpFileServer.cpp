@@ -69,7 +69,16 @@ static std::map<std::string, std::string> HTTP_MIME_TABLE {
     {".mp4" , "video/mp4"},
     {".png" , "image/png"},
     {".svg" , "image/svg+xml"},
-    {".xml" , "text/xml"}
+    {".xml" , "text/xml"},
+    {".json", "application/json"},
+    {".ttf" , "application/x-font-ttf"},
+    {".woff", "application/font-woff"},
+    {".eot" , "application/vnd.ms-fontobject"},
+    {".otf" , "application/x-font-opentype"},
+    {".ttc" , "application/x-font-ttc"},
+    {".otc" , "application/x-font-otc"},
+    {".woff2", "application/font-woff2"},
+    {".txt" , "text/plain"}
 };
 
 /*
@@ -334,6 +343,10 @@ class HttpConnection
     std::string m_method;
     std::string m_uri;
 
+#pragma region 限速
+    int m_speedLimitKbS;
+#pragma endregion
+
     bool string_icompare(const std::string& left, const std::string& right)
     {
         return std::ranges::equal(left, right, [](char c1, char c2) {
@@ -389,6 +402,131 @@ class HttpConnection
         send(m_sock, response.c_str(), static_cast<int>(response.size()), 0);
     }
 
+    bool send_small_file(SOCKET client, const wchar_t* file_path, const std::string& contentType)
+    {
+        std::ifstream file(file_path, std::ios::binary);
+        if (!file)
+            return false;
+        
+		std::stringstream buffer;
+		buffer << file.rdbuf();
+		std::string content = buffer.str();
+
+		std::string response = "HTTP/1.1 200 OK\r\nServer: Miku Server\r\nConnection: close\r\n";
+		response += "Content-Type: " + contentType + "\r\n";
+		response += "Content-Length: " + std::to_string(content.size()) + "\r\n";
+		response += "\r\n";
+
+		send(m_sock, response.c_str(), static_cast<int>(response.size()), 0);
+		send(m_sock, content.c_str(), static_cast<int>(content.size()), 0);
+		return true;        
+    }
+
+    bool send_chunked_file(SOCKET client, const wchar_t* file_path, const std::string& contentType)
+    {
+        bool ret = false;
+        HANDLE hFile = NULL;
+        HANDLE hMapping = NULL;
+        LPVOID mapped = NULL;
+
+        do
+        {
+            // 内存映射文件
+            hFile = CreateFile(file_path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+            if (!hFile || hFile == INVALID_HANDLE_VALUE)
+                break;
+            hMapping = CreateFileMapping(hFile, NULL, PAGE_READONLY, 0, 0, NULL);
+            if (!hMapping || hMapping == INVALID_HANDLE_VALUE)
+                break;
+            mapped = MapViewOfFile(hMapping, FILE_MAP_READ, 0, 0, 0);
+            if (!mapped)
+                break;
+
+            DWORD file_size = GetFileSize(hFile, NULL);
+
+            // 发送HTTP头
+            std::string header = "HTTP/1.1 200 OK\r\nServer: Miku Server\r\nConnection: close\r\n";
+            header += "Content-Type: " + contentType + "\r\n";
+            header += "Transfer-Encoding: chunked\r\n";
+            header += "\r\n";
+            send(client, header.c_str(), static_cast<int>(header.size()), 0);
+
+            // 分块传输（64KB/块）
+            const DWORD CHUNK_SIZE = 65536;
+            char* data = static_cast<char*>(mapped);
+            DWORD remaining = file_size;
+
+#pragma region 限速
+            DWORD start_send_time = ::GetTickCount();
+            bool pause = false;
+#pragma endregion
+
+            char chunk_head[22];
+            while (remaining > 0)
+            {
+#pragma region 限速
+                DWORD st = ::GetTickCount() - start_send_time;
+                if (st != 0)
+                {
+                    double speed = (data - static_cast<char*>(mapped)) / (double)(st);
+                    printf("%.2f KB/s        \r", speed);
+
+                    if (m_speedLimitKbS > 0)
+                    {
+                        if (speed > m_speedLimitKbS)
+                            pause = true;
+                        else
+                            pause = false;
+                    }
+                }
+                if (pause)
+                {                    
+                    Sleep(10);
+                    continue;
+                }
+#pragma endregion
+
+                DWORD send_size = min(CHUNK_SIZE, remaining);
+
+                // 生成chunk头部                
+                int len = sprintf_s(chunk_head, sizeof(chunk_head), "%X\r\n", send_size);
+                int sended_status = send(client, chunk_head, len, 0);
+                if (sended_status <= 0)
+                    break;
+
+                // 发送数据块
+                send(client, data, send_size, 0);
+                send(client, "\r\n", 2, 0);
+
+                data += send_size;
+                remaining -= send_size;
+            }
+
+            // 结束块
+            send(client, "0\r\n\r\n", 5, 0);
+
+            ret = true;
+        } while (false);
+
+        // 释放资源
+        if (mapped)
+			UnmapViewOfFile(mapped);
+        if (hMapping && hMapping != INVALID_HANDLE_VALUE)
+			CloseHandle(hMapping);
+        if (hFile && hFile != INVALID_HANDLE_VALUE)
+			CloseHandle(hFile);
+
+        return ret;
+    }
+
+    bool file_exists(const fs::path& p)
+    {
+        DWORD dwAttrib = GetFileAttributes(p.wstring().c_str());
+        if (dwAttrib == INVALID_FILE_ATTRIBUTES || (dwAttrib & FILE_ATTRIBUTE_DIRECTORY))
+            return false; // 文件不存在或是目录
+        return true; // 文件存在
+    }
+
     void serve_file(const fs::path& p) 
     {
         auto extension = p.extension().string();
@@ -401,27 +539,26 @@ class HttpConnection
         }
         else
         {
-            contentType = "text/plain";
+            contentType = "application/octet-stream";
         }
 
-        std::ifstream file(p, std::ios::binary);
-        if (file) 
+        if (file_exists(p))
         {
-            std::stringstream buffer;
-            buffer << file.rdbuf();
-            std::string content = buffer.str();
+            //大文件
+            if (!send_chunked_file(m_sock, p.wstring().c_str(), contentType))
+            {
+                http_response_send(HTTP_500_INTERNAL_SERVER_ERROR);
+            }
 
-            std::string response = "HTTP/1.1 200 OK\r\nServer: Miku Server\r\nConnection: close\r\n";
-            response += "Content-Type: " + contentType + "\r\n";
-            response += "Content-Length: " + std::to_string(content.size()) + "\r\n";
-            response += "\r\n";
-
-            send(m_sock, response.c_str(), static_cast<int>(response.size()), 0);
-            send(m_sock, content.c_str(), static_cast<int>(content.size()), 0);
-        }
-        else 
+            ////小文件
+			//if (!send_small_file(m_sock, p.wstring().c_str(), contentType))
+            //{
+            //    http_response_send(HTTP_500_INTERNAL_SERVER_ERROR);
+            //}
+        }        
+        else
         {
-            http_response_send(HTTP_404_NOT_FOUND);
+			http_response_send(HTTP_404_NOT_FOUND);
         }
     }
 
@@ -551,6 +688,7 @@ public:
     HttpConnection(SOCKET _sock, const std::string& _rootPath) 
         : m_sock{ _sock }
         , m_request(HTTP_RECV_BUFFER_LEN, char{})
+        , m_speedLimitKbS(0)
     {
         std::wstring rootPath = conv_ascii_to_unicode(_rootPath);
         m_fsRootPath = fs::absolute(rootPath).lexically_normal();
@@ -572,6 +710,13 @@ public:
             }
         }
     }
+
+#pragma region 限速
+    void set_speed_limit(int speedLimitKbS)
+    {
+        m_speedLimitKbS = speedLimitKbS;
+    }
+#pragma endregion
 
     void start() 
     {
@@ -604,6 +749,11 @@ class HttpFileServer
 {
     SOCKET m_server;
     ThreadPool m_pool;
+
+#pragma region 限速
+    int m_speedLimitKbS;
+#pragma endregion
+
 
     void bind_listen(const std::string& ip, uint16_t port) 
     {
@@ -640,6 +790,7 @@ class HttpFileServer
     }
 public:
     HttpFileServer() 
+        : m_speedLimitKbS(0)
     {
         m_server = socket(AF_INET, SOCK_STREAM, 0);
         if (m_server == INVALID_SOCKET) 
@@ -659,6 +810,13 @@ public:
         }
     }
 
+#pragma region 限速
+    void set_speed_limit(int speedLimitKbS)
+    {
+        m_speedLimitKbS = speedLimitKbS;
+    }
+#pragma endregion
+
     void serve(const std::string& ip, uint16_t port, const std::string& rootPath) 
     {
         bind_listen(ip, port);
@@ -672,6 +830,9 @@ public:
             }
 
             auto connection = std::make_shared<HttpConnection>(s, rootPath);
+#pragma region 限速
+            connection->set_speed_limit(m_speedLimitKbS);
+#pragma endregion
             m_pool.add_task([connection]() { connection->start(); });
         }
     }
@@ -697,6 +858,7 @@ int main(int argc, char* argv[])
         HttpFileServer hfs;
         std::cout << "Server is running on port " << port << std::endl;
         std::cout << "Visit http://127.0.0.1:" << port << std::endl;
+        hfs.set_speed_limit(1024);
         hfs.serve("0.0.0.0", port, argv[2]);
     }
     catch (const std::invalid_argument& e) 
