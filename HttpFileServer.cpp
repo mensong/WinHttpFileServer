@@ -840,26 +840,69 @@ public:
 
 int main(int argc, char* argv[]) 
 {
-    if (argc != 3)
+    std::string port = "8000";
+    std::string dir = ".\\";
+    std::string limitKbS = "0";
+
+    if (argc < 2)
     {
-        std::cerr << "Usage: " << argv[0] << " <port> <root_path>.\n";
-        return -1;
+        std::cout << "Usage:" << std::endl
+            << " port=server port. default:" << port << std::endl
+            << " dir=http root directory. default:\"" << dir << "\"" << std::endl
+            << " limit=speed limit KB/s. default:" << limitKbS << std::endl;
     }
 
-    if (!fs::is_directory(argv[2])) 
+    auto funcSplitArg = [](const std::string& arg, std::string& key, std::string& val)->void
     {
-        std::cerr << "init failed, given root_path: " << argv[2] << " is not a directory, this program won't work on that.";
+		size_t idx = arg.find('=');
+		if (idx == std::string::npos)
+		{//只有标志
+			key = arg;
+		}
+		else
+		{//有KV
+			key = arg.substr(0, idx);
+			val = arg.substr(idx + 1);
+		}
+    };
+
+    for (int i = 1; i < argc; i++)
+    {
+        std::string arg = argv[i];
+        std::string key, val;
+        funcSplitArg(arg, key, val);
+        if (key.empty())
+            continue;
+
+        if (key == "port")
+            port = val;
+        else if (key == "dir")
+            dir = val;
+        else if (key == "limit")
+            limitKbS = val;
+    }
+
+    if (!fs::is_directory(dir))
+    {
+        std::cerr << "init failed, given root_path: " << dir << " is not a directory, this program won't work on that.";
         return -1;
     }
 
     try 
     {
-        auto port = static_cast<uint16_t>(std::stoi(argv[1]));
+        auto nport = static_cast<uint16_t>(std::stoi(port.c_str()));
+        if (nport <= 0 || nport > 65535)
+        {
+            throw std::out_of_range("port out of range");
+        }
+        int speedLimitKbS = std::stoi(limitKbS.c_str());
+
         HttpFileServer hfs;
-        std::cout << "Server is running on port " << port << std::endl;
-        std::cout << "Visit http://127.0.0.1:" << port << std::endl;
-        hfs.set_speed_limit(1024);
-        hfs.serve("0.0.0.0", port, argv[2]);
+        std::cout << "Server is running on port " << nport << std::endl;
+        std::cout << "Limit speed " << speedLimitKbS << "KB/s" << std::endl;
+        std::cout << "Visit http://127.0.0.1:" << nport << std::endl;
+        hfs.set_speed_limit(speedLimitKbS);
+        hfs.serve("0.0.0.0", nport, dir);
     }
     catch (const std::invalid_argument& e) 
     {
