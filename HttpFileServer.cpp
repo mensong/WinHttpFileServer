@@ -691,6 +691,13 @@ public:
         , m_speedLimitKbS(0)
     {
         std::wstring rootPath = conv_ascii_to_unicode(_rootPath);
+        if (rootPath == L"")
+            rootPath = fs::current_path().wstring();
+
+        //解决直接使用盘符作为根路径时，如果最后没有\，fs::absolute(rootPath)会返回当前目录的问题
+        if (rootPath[rootPath.size() - 1] == ':')
+            rootPath += '\\';
+
         m_fsRootPath = fs::absolute(rootPath).lexically_normal();
     }
 
