@@ -493,10 +493,13 @@ class HttpConnection
                 int sended_status = send(client, chunk_head, len, 0);
                 if (sended_status <= 0)
                     break;
-
                 // ·¢ËÍÊı¾İ¿é
-                send(client, data, send_size, 0);
-                send(client, "\r\n", 2, 0);
+                sended_status = send(client, data, send_size, 0);
+                if (sended_status <= 0)
+                    break;
+                sended_status = send(client, "\r\n", 2, 0);
+                if (sended_status <= 0)
+                    break;
 
                 data += send_size;
                 remaining -= send_size;
