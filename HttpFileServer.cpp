@@ -443,21 +443,22 @@ class HttpConnection
             LARGE_INTEGER fileSize = { 0 };
             if (!GetFileSizeEx(hFile, &fileSize))
                 break;
-            LONGLONG file_size = fileSize.QuadPart;
 
             // 发送HTTP头
             std::string header = "HTTP/1.1 200 OK\r\nServer: Miku Server\r\nConnection: close\r\n";
             header += "Content-Type: " + contentType + "\r\n";
+            header += "Content-Length: " + std::to_string(fileSize.QuadPart) + "\r\n";
             header += "Transfer-Encoding: chunked\r\n";
             header += "\r\n";
             send(client, header.c_str(), static_cast<int>(header.size()), 0);
 
             // 分块映射
-            DWORD offset = 0;
-            while (offset < file_size) 
+            LARGE_INTEGER offset;
+            offset.QuadPart = 0;
+            while (offset.QuadPart < fileSize.QuadPart)
             {
-                DWORD block_size = min(100 * 1024 * 1024, file_size - offset); // 100MB/块，用于支持大于4GB的文件
-                LPVOID block = MapViewOfFile(hMapping, FILE_MAP_READ, 0, offset, block_size);
+                DWORD block_size = min(100 * 1024 * 1024, fileSize.QuadPart - offset.QuadPart); // 100MB/块，用于支持大于4GB的文件
+                LPVOID block = MapViewOfFile(hMapping, FILE_MAP_READ, offset.HighPart, offset.LowPart, block_size);
                 // 处理当前块...
                 if (!block)
                 {
@@ -529,7 +530,7 @@ class HttpConnection
 				}
 
 				UnmapViewOfFile(block);
-				offset += block_size;
+				offset.QuadPart += block_size;
 
                 if (isRealError)
                     break;
