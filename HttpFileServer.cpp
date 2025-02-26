@@ -457,7 +457,9 @@ class HttpConnection
             offset.QuadPart = 0;
             while (offset.QuadPart < fileSize.QuadPart)
             {
-                DWORD block_size = min(100 * 1024 * 1024, fileSize.QuadPart - offset.QuadPart); // 100MB/块，用于支持大于4GB的文件
+                DWORD block_size = min(
+                    100 * 1024 * 1024, // 100MB/块，用于支持大于4GB的文件
+                    (DWORD)(fileSize.QuadPart - offset.QuadPart));
                 LPVOID block = MapViewOfFile(hMapping, FILE_MAP_READ, offset.HighPart, offset.LowPart, block_size);
                 // 处理当前块...
                 if (!block)
