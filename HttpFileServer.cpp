@@ -879,6 +879,52 @@ public:
     }
 };
 
+
+bool getLocalIpList(std::vector<std::string>& outIPList)
+{
+	//WSADATA WSAData;
+	//if (WSAStartup(MAKEWORD(2, 2), &WSAData) != 0)
+	//{
+	//	printf("WSAStartup() error!\n");
+	//	return false;
+	//}
+	int ret;
+	struct addrinfo hints;
+	struct addrinfo* res, * cur;
+	struct sockaddr_in* addr;
+	char m_ipaddr[16];
+
+	memset(&hints, 0, sizeof(struct addrinfo));
+	hints.ai_family = AF_INET;     /* Allow IPv4 */
+	hints.ai_flags = AI_PASSIVE;/* For wildcard IP address */
+	hints.ai_protocol = 0;         /* Any protocol */
+	hints.ai_socktype = SOCK_DGRAM;
+
+	ret = getaddrinfo("", NULL, &hints, &res);
+
+	if (ret == -1) {
+		perror("getaddrinfo");
+		//WSACleanup();
+		return false;
+	}
+
+	for (cur = res; cur != NULL; cur = cur->ai_next)
+	{
+		addr = (struct sockaddr_in*)cur->ai_addr;
+		sprintf_s(m_ipaddr, 16, "%d.%d.%d.%d",
+			(*addr).sin_addr.S_un.S_un_b.s_b1,
+			(*addr).sin_addr.S_un.S_un_b.s_b2,
+			(*addr).sin_addr.S_un.S_un_b.s_b3,
+			(*addr).sin_addr.S_un.S_un_b.s_b4);
+		//printf("%s\n", m_ipaddr);
+		outIPList.push_back(m_ipaddr);
+	}
+	freeaddrinfo(res);
+	//WSACleanup();
+
+	return true;
+}
+
 int main(int argc, char* argv[]) 
 {
     std::string port = "8000";
@@ -941,7 +987,17 @@ int main(int argc, char* argv[])
         HttpFileServer hfs;
         std::cout << "Server is running on port " << nport << std::endl;
         std::cout << "Limit speed " << speedLimitKbS << "KB/s" << std::endl;
-        std::cout << "Visit http://127.0.0.1:" << nport << std::endl;
+        std::cout << "Url: http://127.0.0.1:" << nport << std::endl;
+
+		std::vector<std::string> outIPList;
+		if (getLocalIpList(outIPList))
+		{
+            for (size_t i = 0; i < outIPList.size(); i++)
+			{
+				std::cout << "     http://" << outIPList[i] << ':' << nport << std::endl;
+            }
+		}
+
         hfs.set_speed_limit(speedLimitKbS);
         hfs.serve("0.0.0.0", nport, dir);
     }
